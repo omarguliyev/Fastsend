@@ -20,6 +20,7 @@
         input[type=file], input[type=range] { display: block; margin: 10px auto; }
         #status { text-align: center; margin-top: 10px; font-weight: bold; }
         #downloadLink { display: block; width: fit-content; margin: 20px auto; padding: 10px 20px; background: #4CAF50; color: white; text-decoration: none; border-radius: 4px; }
+        .camera-toggle { margin-top: 10px; text-align: center; }
     </style>
 </head>
 <body>
@@ -42,6 +43,9 @@
         <div id="receiverUI" class="ui">
             <h2>Receiver Mode</h2>
             <video id="receiverVideo" autoplay playsinline></video>
+            <div class="camera-toggle">
+                <button id="toggleCamBtn">Switch Camera</button>
+            </div>
             <canvas id="receiverCanvas" width="400" height="400" style="display:none;"></canvas>
             <button id="startReceiveBtn">Start Scanning</button>
             <div id="receiveStatus"></div>
@@ -66,6 +70,7 @@
     const startReceiveBtn = document.getElementById('startReceiveBtn');
     const receiveStatus = document.getElementById('receiveStatus');
     const downloadLink = document.getElementById('downloadLink');
+    const toggleCamBtn = document.getElementById('toggleCamBtn');
 
     // Mode switching
     senderBtn.addEventListener('click', () => {
@@ -166,14 +171,22 @@
     // Receiver logic
     let receiverInterval = null;
     let receivedBits = '';
+    let currentStream = null;
+    let currentFacing = 'environment'; // start with back camera
     const THRESHOLD = 128; // brightness threshold for black/white
 
-    async function startReceiver() {
+    async function startReceiver(facingMode) {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: facingMode } 
+            });
+            if (currentStream) {
+                currentStream.getTracks().forEach(t => t.stop());
+            }
+            currentStream = stream;
             receiverVideo.srcObject = stream;
-            receiverVideo.play();
-            receiveStatus.textContent = 'Video started. Point camera at sender screen.';
+            await receiverVideo.play();
+            receiveStatus.textContent = `Video started (${facingMode === 'environment' ? 'back' : 'front'} camera). Point camera at sender screen.`;
             // Start sampling
             receiverInterval = setInterval(sampleVideoFrame, 100); // sample every 100ms
         } catch (err) {
@@ -221,12 +234,11 @@
             clearInterval(receiverInterval);
             receiverInterval = null;
         }
-        if (receiverVideo.srcObject) {
-            const stream = receiverVideo.srcObject;
-            const tracks = stream.getTracks();
-            tracks.forEach(track => track.stop());
-            receiverVideo.srcObject = null;
+        if (currentStream) {
+            currentStream.getTracks().forEach(t => t.stop());
+            currentStream = null;
         }
+        receiverVideo.srcObject = null;
         receiverCtx.clearRect(0, 0, receiverCanvas.width, receiverCanvas.height);
         // Convert received bits to file
         if (receivedBits.length >= 8) {
@@ -250,7 +262,7 @@
 
     startReceiveBtn.addEventListener('click', () => {
         if (!receiverInterval) {
-            startReceiver();
+            startReceiver(currentFacing);
             startReceiveBtn.textContent = 'Stop Scanning';
             receiveStatus.textContent = '';
             receivedBits = '';
@@ -259,6 +271,21 @@
         } else {
             stopReceiver();
             startReceiveBtn.textContent = 'Start Scanning';
+        }
+    });
+
+    toggleCamBtn.addEventListener('click', () => {
+        // Toggle facing mode
+        currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+        // If currently scanning, restart with new camera
+        if (receiverInterval) {
+            stopReceiver();
+            startReceiver(currentFacing);
+            // Update button text to reflect new state? keep as Switch Camera
+            receiveStatus.textContent = `Switching to ${currentFacing === 'environment' ? 'back' : 'front'} camera...`;
+        } else {
+            // Just update facing for next start
+            receiveStatus.textContent = `Camera will switch to ${currentFacing === 'environment' ? 'back' : 'front'} on start.`;
         }
     });
 </script>
